@@ -1,0 +1,21 @@
+{
+  "name": "@liapoldus/react",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit --strict --target ES2022 --module NodeNext --moduleResolution NodeNext --jsx react-jsx test/sdk.types.ts",
+    "test": "node --test test/*.test.mjs"
+  },
+  "peerDependencies": {
+    "react": ">=18"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.0",
+    "react-dom": "^19.3.0",
+    "typescript": "^5.7.0"
+  }
+}

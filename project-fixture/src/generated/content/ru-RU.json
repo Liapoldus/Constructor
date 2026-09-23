@@ -1,0 +1,14 @@
+{
+  "pages": {
+    "home": {
+      "instances": {
+        "hero-main": {
+          "component": "hero",
+          "fields": {
+            "title": "Liapoldus Constructor"
+          }
+        }
+      }
+    }
+  }
+}

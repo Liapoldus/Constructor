@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "id": "button",
+  "kind": "component",
+  "source": "src/components/button/component.tsx",
+  "fields": [{"key":"label","type":"text","label":"Label","required":true}]
+}

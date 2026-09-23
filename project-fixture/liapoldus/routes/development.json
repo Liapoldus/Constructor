@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "id": "development-routes",
+  "routes": [
+    {"id":"home","path":"/","page":"home","chunk":"same"},
+    {"id":"about","path":"/about","page":"about","chunk":"lazy","lazy":true,"layouts":["shell"],"access":"member"}
+  ]
+}

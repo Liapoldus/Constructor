@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "id": "hero",
+  "kind": "component",
+  "source": "src/components/hero/component.tsx",
+  "fields": [{"key":"title","type":"text","label":"Title","required":true,"localized":true}]
+}

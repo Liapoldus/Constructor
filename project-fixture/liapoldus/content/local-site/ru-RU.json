@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "home-content",
+  "instances": [
+    {
+      "id": "hero-main",
+      "pageId": "home",
+      "component": "hero",
+      "fields": {
+        "title": "Liapoldus Constructor"
+      }
+    }
+  ]
+}

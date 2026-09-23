@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "id": "local-site",
+  "projectId": "00000000-0000-4000-8000-000000000001",
+  "name": "Demo site",
+  "pages": [{"id":"home","name":"Home"},{"id":"about","name":"About"}],
+  "locales": ["ru-RU"]
+}

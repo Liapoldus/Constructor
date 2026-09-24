@@ -199,6 +199,12 @@ export type PreviewDraftStore = ReadonlyStore<PreviewRuntimeContent> & {
   getSelectedInstanceId: () => string | null
   subscribeSelection: (listener: () => void) => () => void
 }
+const previewMessageMaxBytes = 1_000_000
+const previewSessionPattern = /^[A-Za-z0-9._~-]{1,256}$/
+const previewTextEncoder = new TextEncoder()
+function isValidPreviewSessionId(value: unknown): value is string {
+  return typeof value === 'string' && previewSessionPattern.test(value)
+}
 export function createPreviewDraftStore(sessionId: string, initialContent: PreviewRuntimeContent = {pages:{}}): PreviewDraftStore {
   let content = initialContent
   let selectedInstanceId: string | null = null
@@ -211,16 +217,18 @@ export function createPreviewDraftStore(sessionId: string, initialContent: Previ
     getSelectedInstanceId: () => selectedInstanceId,
     subscribeSelection: listener => { selectionListeners.add(listener); return () => selectionListeners.delete(listener) },
     connect: (target, parent) => {
+      if (!isValidPreviewSessionId(sessionId)) return () => {}
       const receive = (event: MessageEvent<unknown>) => {
-        // A sandboxed preview without allow-same-origin deliberately reports an
-        // opaque "null" origin. Trust it only when the sender is the exact
-        // parent window and the per-preview session token below also matches.
-        if (event.source !== parent || !isPreviewMessageOrigin(event.origin) || !isPreviewDraftMessage(event.data)) return
+        // The child may have an opaque origin, but messages received here must
+        // come from the Constructor parent, whose origin is a trusted loopback.
+        if (event.source !== parent || !isPreviewMessageOrigin(event.origin)) return
+        try {
+          const serialized = JSON.stringify(event.data)
+          if (typeof serialized !== 'string' || previewTextEncoder.encode(serialized).byteLength > previewMessageMaxBytes) return
+        } catch { return }
+        if (!isPreviewDraftMessage(event.data)) return
         const message = event.data
         if (message.sessionId !== sessionId || message.revision <= revision) return
-        let encoded: string
-        try { encoded = JSON.stringify(message) } catch { return }
-        if (encoded.length > 1_000_000) return
         const nextSelection = message.selectedInstanceId ?? null
         const selectionChanged = selectedInstanceId !== nextSelection
         content = message.content
@@ -237,7 +245,7 @@ export function createPreviewDraftStore(sessionId: string, initialContent: Previ
 function isPreviewDraftMessage(value: unknown): value is PreviewDraftMessage {
   if (!value || typeof value !== 'object') return false
   const message = value as Partial<PreviewDraftMessage>
-  return message.protocol === 1 && message.source === 'liapoldus.constructor' && message.type === 'content-draft' && typeof message.sessionId === 'string' && Number.isSafeInteger(message.revision) && (message.selectedInstanceId === undefined || message.selectedInstanceId === null || (typeof message.selectedInstanceId === 'string' && message.selectedInstanceId.length > 0 && message.selectedInstanceId.length <= 128)) && isPreviewRuntimeContent(message.content)
+  return message.protocol === 1 && message.source === 'liapoldus.constructor' && message.type === 'content-draft' && isValidPreviewSessionId(message.sessionId) && Number.isSafeInteger(message.revision) && (message.selectedInstanceId === undefined || message.selectedInstanceId === null || (typeof message.selectedInstanceId === 'string' && message.selectedInstanceId.length > 0 && message.selectedInstanceId.length <= 128)) && isPreviewRuntimeContent(message.content)
 }
 function isPreviewRuntimeContent(value: unknown): value is PreviewRuntimeContent {
   if (!isRecord(value) || !isRecord(value.pages)) return false
@@ -247,7 +255,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
 }
 function isPreviewMessageOrigin(origin: string) {
-  if (origin === 'null') return true
   try {
     const url = new URL(origin)
     if (url.protocol !== 'http:' && url.protocol !== 'https:') return false
@@ -258,7 +265,8 @@ function isPreviewMessageOrigin(origin: string) {
 }
 const PreviewDraftContext = createContext<PreviewDraftStore | null>(null)
 export function PreviewRuntimeProvider({sessionId, initialContent = {pages:{}}, children}: {sessionId?: string; initialContent?: PreviewRuntimeContent; children: ReactNode}) {
-  const resolvedSessionId = sessionId ?? (typeof window === 'undefined' ? '' : new URLSearchParams(window.location.search).get('__liapoldus_preview_session') ?? '')
+  const candidateSessionId = sessionId ?? (typeof window === 'undefined' ? '' : new URLSearchParams(window.location.search).get('__liapoldus_preview_session') ?? '')
+  const resolvedSessionId = isValidPreviewSessionId(candidateSessionId) ? candidateSessionId : ''
   const store = useMemo(() => createPreviewDraftStore(resolvedSessionId, initialContent), [resolvedSessionId])
   useEffect(() => {
     if (!resolvedSessionId) return

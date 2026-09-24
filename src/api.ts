@@ -24,6 +24,8 @@ export type Role = {id: string; name: string; system: boolean}
 export type Permission = {key: string}
 export type Route = {id:string;path:string;page:string;layout?:string;layouts?:string[];access?:string;chunk?:'same'|'separate'|'lazy'|'preload';lazy?:boolean;preload?:string[];metadata?:Record<string,string>}
 export type RouteDocument = {schemaVersion:1;id:string;routes:Route[]}
+export type CaddyfileDiagnostic = {code:string;severity:string;message:string;path?:string}
+export type CaddyfileSource = {text:string;revision:string;diagnostics:CaddyfileDiagnostic[]}
 export type AssetType = 'image'|'icon'|'font'|'video'|'document'|'other'
 export type AssetVariantItem = {path:string;mimeType:'image/webp';width:number;height:number;size:number;sha256:string}
 export type AssetItem = {id:string;type:AssetType;path:string;mimeType:string;size:number;sha256:string;width?:number;height?:number;variants?:AssetVariantItem[]}
@@ -35,6 +37,10 @@ export type GitCommitRecord = {hash:string;message:string;author:string;date:str
 export type GatewayPluginInstance = {id:string;state:'starting'|'ready'|'unhealthy'|'stopped';capabilities:string[];limits:Record<string,unknown>;health:boolean}
 export class PluginSurfaceChangedError extends Error {
   constructor(){super('The plugin Admin Surface changed. Reload its schema before continuing.');this.name='PluginSurfaceChangedError'}
+}
+
+export class CaddyfileSaveError extends Error {
+  constructor(message:string,readonly conflict:boolean,readonly diagnostics:CaddyfileDiagnostic[]){super(message);this.name='CaddyfileSaveError'}
 }
 
 type APIProblem = {detail?:string;error?:string;title?:string;diagnostics?:Diagnostic[]}
@@ -61,6 +67,19 @@ export function toRuntimeContent(document:ContentDocument):RuntimeContent {
 }
 
 const gatewayIDPattern=/^[a-z][a-z0-9-]{0,62}$/
+const caddyfilePath='Caddyfile'
+function readCaddyfileFailure(raw:string,status:number,operation:string):{message:string;diagnostics:CaddyfileDiagnostic[];revision:string} {
+  let body:Record<string,unknown>={}
+  try{const parsed=JSON.parse(raw);if(parsed&&typeof parsed==='object'&&!Array.isArray(parsed))body=parsed as Record<string,unknown>}catch{/* Ignore non-JSON response bodies. */}
+  const diagnostics=Array.isArray(body.diagnostics)?body.diagnostics.filter((item):item is CaddyfileDiagnostic=>{
+    if(!item||typeof item!=='object')return false
+    const value=item as CaddyfileDiagnostic
+    return typeof value.code==='string'&&/^[a-z0-9][a-z0-9._-]{0,127}$/.test(value.code)&&['error','warning','info'].includes(value.severity)&&typeof value.message==='string'&&value.message.length<=512&&!/[\u0000-\u001f\u007f]/.test(value.message)&&(!('path'in value)||typeof value.path==='string'&&value.path.length<=256&&!/[\u0000-\u001f\u007f]/.test(value.path))
+  }).slice(0,100):[]
+  const structuredError=[body.detail,body.error].find((value):value is string=>typeof value==='string'&&value.trim().length>0&&value.length<=512&&!/[\u0000-\u001f\u007f]/.test(value))
+  const revision=typeof body.revision==='string'&&body.revision.length<=256&&!/[\u0000-\u001f\u007f]/.test(body.revision)?body.revision:''
+  return {message:structuredError??`${operation} (${status})`,diagnostics,revision}
+}
 function gatewayID(value:string,label:string):string {
   if(!gatewayIDPattern.test(value))throw new Error(`${label} is invalid`)
   return encodeURIComponent(value)
@@ -88,6 +107,24 @@ export async function loadPluginAdminSurface(instance:string):Promise<AdminSurfa
   const digest=etag.replace(/^W\//,'').replace(/^"|"$/g,'')
   if(digest!==surface.surfaceDigest)throw new Error('Gateway Surface ETag does not match its digest')
   return surface
+}
+
+export async function loadCaddyfile(projectID:string):Promise<CaddyfileSource> {
+  if(!projectID)throw new Error('A project ID is required to load its Caddyfile')
+  const response=await constructorRequest(`/api/v1/projects/${encodeURIComponent(projectID)}/files/${encodeURIComponent(caddyfilePath)}`)
+  if(response.status===404)return {text:'',revision:'',diagnostics:[]}
+  const text=await response.text()
+  if(!response.ok)throw new Error(readCaddyfileFailure(text,response.status,'Caddyfile source unavailable').message)
+  return {text,revision:response.headers.get('ETag')??'',diagnostics:[]}
+}
+
+export async function saveCaddyfile(projectID:string,text:string,revision:string):Promise<CaddyfileSource> {
+  if(!projectID)throw new Error('A project ID is required to save its Caddyfile')
+  const response=await constructorRequest(`/api/v1/projects/${encodeURIComponent(projectID)}/files/${encodeURIComponent(caddyfilePath)}`,{method:'PUT',headers:{'Content-Type':'text/plain; charset=utf-8','If-Match':revision},body:text})
+  const responseText=await response.text()
+  const failure=readCaddyfileFailure(responseText,response.status,'Caddyfile save failed')
+  if(!response.ok)throw new CaddyfileSaveError(failure.message,response.status===409||response.status===412,failure.diagnostics)
+  return {text,revision:response.headers.get('ETag')??failure.revision,diagnostics:failure.diagnostics}
 }
 export async function queryPluginAdmin(instance:string,page:string,digest:string,input:Record<string,unknown>):Promise<unknown> {
   const path=`/api/plugins/${gatewayID(instance,'Plugin ID')}/admin/pages/${gatewayID(page,'Page ID')}/query`

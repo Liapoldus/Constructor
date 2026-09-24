@@ -84,3 +84,13 @@ backend; React renderer не хранит credential в browser storage и не 
 filesystem source path и не использует старый site-oriented publish API.
 Без настроенного Gateway Constructor явно показывает недоступность и никогда
 не объявляет publish/rollback успешным без terminal Gateway operation.
+
+В активном проекте Constructor доступен отдельный редактор исходного текста
+`Caddyfile` в корне проекта. Он сохраняет введённый UTF-8 текст без локального
+парсинга или адаптации, использует revision `ETag`/`If-Match` и показывает
+diagnostics только если они вернулись из API. Этот источник пока не связан с
+Gateway group, системной группой или Group Publish; соответствие
+`SiteID`/`EnvironmentID` и `groupId` не предполагается. Named-project GET
+требует permission `content.read`, сохранение — `content.write`. В исходнике
+должны использоваться внешние secret references; редактор не является
+исключением из политики хранения секретов и не выполняет локальное сканирование.

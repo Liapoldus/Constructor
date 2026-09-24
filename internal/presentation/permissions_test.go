@@ -16,6 +16,9 @@ func TestDocumentedMutationEndpointsRequireTheirDeclaredPermission(t *testing.T)
 	}{
 		{http.MethodPost, "/api/v1/projects", "code.project"},
 		{http.MethodPost, "/api/v1/projects/demo/activate", "code.project"},
+		{http.MethodGet, "/api/v1/projects/demo/files/Caddyfile", "content.read"},
+		{http.MethodHead, "/api/v1/projects/demo/files/Caddyfile", "content.read"},
+		{http.MethodGet, "/api/v1/projects/demo/files/src/app.tsx", ""},
 		{http.MethodPut, "/api/v1/projects/demo/files/src/app.tsx", "content.write"},
 		{http.MethodPut, "/api/v1/project/file", "content.write"},
 		{http.MethodPut, "/api/v1/project/content", "content.write"},
@@ -54,6 +57,16 @@ func TestDocumentedMutationEndpointsRequireTheirDeclaredPermission(t *testing.T)
 				t.Fatalf("requiredPermission() = %q, want %q", got, test.permission)
 			}
 		})
+	}
+}
+
+func TestNamedProjectFileReadsRequireContentReadGrant(t *testing.T) {
+	auth := application.NewAuthService(deniedPermissionAuthorizer{})
+	handler := NewHandler(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, auth, nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/projects/demo/files/Caddyfile", nil))
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("named project file GET was not denied without content.read: status=%d body=%s", response.Code, response.Body.String())
 	}
 }
 

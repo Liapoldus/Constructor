@@ -346,6 +346,9 @@ func permissionMiddleware(next http.Handler, auth *application.AuthService) http
 	})
 }
 func requiredPermission(method, path string) string {
+	if (method == http.MethodGet || method == http.MethodHead) && strings.HasSuffix(path, "/files/Caddyfile") && strings.HasPrefix(path, "/api/v1/projects/") {
+		return "content.read"
+	}
 	if method == http.MethodGet || method == http.MethodHead || method == http.MethodOptions {
 		return ""
 	}

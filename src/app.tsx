@@ -1,6 +1,8 @@
 import {create} from 'zustand'
 import {useEffect, useRef, useState} from 'react'
-import {activateProject, activeProject, assignRole, buildSnapshot, ContentRevisionConflict, createPermission, createProject, createProjectPage, createProjectSite, createRole, createSnapshot, createUser, deploySnapshot, deploymentTargetState, generateRoutes, grantPermission, listProjectAssets, listProjects, listProjectThemes, listSiteDocuments, loadDeliveryHistory, loadProject, loadRBAC, loadRoutes, rollbackDeployment, saveEnvironment, saveProjectContent, saveProjectTheme, saveRoutes, saveSiteDocument, startPreview, stopPreview, toRuntimeContent, uploadProjectAsset, validateProject, type AssetItem, type Diagnostic, type Environment, type PreviewDraftMessage, type Project, type RouteDocument, type RuntimeContent, type SiteDocument, type SitePage, type ThemeDocument, type ThemeTokenType} from './api'
+import {activateProject, activeProject, assignRole, buildSnapshot, CaddyfileSaveError, ContentRevisionConflict, createPermission, createProject, createProjectPage, createProjectSite, createRole, createSnapshot, createUser, deploySnapshot, deploymentTargetState, generateRoutes, grantPermission, listProjectAssets, listProjects, listProjectThemes, listSiteDocuments, loadCaddyfile, loadDeliveryHistory, loadProject, loadRBAC, loadRoutes, rollbackDeployment, saveCaddyfile, saveEnvironment, saveProjectContent, saveProjectTheme, saveRoutes, saveSiteDocument, startPreview, stopPreview, toRuntimeContent, uploadProjectAsset, validateProject, type AssetItem, type Diagnostic, type Environment, type PreviewDraftMessage, type Project, type RouteDocument, type RuntimeContent, type SiteDocument, type SitePage, type ThemeDocument, type ThemeTokenType} from './api'
+import {caddyfileDraftForProject,createCaddyfileDraft,createCaddyfileDraftCache,editCaddyfileDraft,emptyCaddyfileDraft,failCaddyfileSave,finishCaddyfileSave,startCaddyfileSave,type CaddyfileDraft} from './caddyfile-draft'
+import {CaddyfileEditorView} from './caddyfile-editor-view'
 import {redoHistory, recordHistory, undoHistory, type HistoryEntry} from './editor-history'
 import {sortProblemsBySeverity, type EditorProblem} from './editor-problems'
 import {previewViewports, previewViewportStyle, type PreviewViewport} from './responsive-preview'
@@ -422,6 +424,47 @@ function RouteEditor() {
     </div>)}
     <small>{message}</small>
   </section>
+}
+function CaddyfileEditor() {
+  const projectID=useEditor(state=>state.project.id)
+  const [view,setView]=useState<{projectID:string;draft:CaddyfileDraft}>({projectID:'',draft:emptyCaddyfileDraft()})
+  const operation=useRef(0)
+  const drafts=useRef(createCaddyfileDraftCache())
+  const draft=caddyfileDraftForProject(projectID,view.projectID,view.draft)
+  const setForProject=(targetProjectID:string,next:CaddyfileDraft|((current:CaddyfileDraft)=>CaddyfileDraft))=>setView(current=>{
+    if(current.projectID!==targetProjectID)return current
+    const updated=typeof next==='function'?next(current.draft):next
+    drafts.current.set(targetProjectID,updated)
+    return {projectID:targetProjectID,draft:updated}
+  })
+  useEffect(()=>{
+    const token=++operation.current
+    if(!projectID){setView({projectID:'',draft:emptyCaddyfileDraft()});return}
+    let current=true
+    const cached=drafts.current.get(projectID)
+    if(cached){setView({projectID,draft:cached});return ()=>{current=false}}
+    setView({projectID,draft:emptyCaddyfileDraft()})
+    void loadCaddyfile(projectID).then(source=>{if(current&&operation.current===token){const next=drafts.current.get(projectID)??createCaddyfileDraft(source.text,source.revision);drafts.current.set(projectID,next);setView({projectID,draft:next})}}).catch(error=>{if(current&&operation.current===token){const next={...emptyCaddyfileDraft(),status:'error' as const,message:error instanceof Error?error.message:'Caddyfile source unavailable'};drafts.current.set(projectID,next);setView({projectID,draft:next})}})
+    return ()=>{current=false}
+  },[projectID])
+  const save=async()=>{
+    if(!projectID||view.projectID!==projectID)return
+    const current=draft
+    if(current.status==='saving'||current.text===current.savedText)return
+    const token=operation.current
+    const submittedText=current.text
+    setForProject(projectID,startCaddyfileSave(current))
+    try{
+      const saved=await saveCaddyfile(projectID,submittedText,current.revision)
+      if(operation.current===token)setForProject(projectID,latest=>finishCaddyfileSave(latest,submittedText,saved.revision,saved.diagnostics))
+    }catch(error){
+      const message=error instanceof Error?error.message:'Caddyfile save failed'
+      const conflict=error instanceof CaddyfileSaveError&&error.conflict
+      const diagnostics=error instanceof CaddyfileSaveError?error.diagnostics:[]
+      if(operation.current===token)setForProject(projectID,latest=>failCaddyfileSave(latest,message,conflict,diagnostics))
+    }
+  }
+  return <CaddyfileEditorView draft={draft} disabled={draft.status==='loading'||!projectID||view.projectID!==projectID} onChange={text=>{if(projectID)setForProject(projectID,current=>editCaddyfileDraft(current,text))}} onSave={()=>void save()}/>
 }
 function ProjectSwitcher({siteId,locale,disabled,onProjectOpened}:{siteId:string;locale:string;disabled:boolean;onProjectOpened:(site:SiteDocument,sites:SiteDocument[],project:Project)=>void}) {
   const [projects,setProjects]=useState<{id:string;name:string}[]>([])
@@ -886,7 +929,7 @@ export function App() {
         <button disabled={busy} onClick={async()=>{try{await persistContent();await deploy()}catch(error){fail(error)}}}>Deploy</button>
       </nav>
       <ProjectSwitcher siteId={site.id} locale={currentProject.locale} disabled={switchingDisabled} onProjectOpened={onProjectOpened}/>
-      <Canvas/><RouteEditor/><GitPanel projectID={currentProject.id} contentDirty={contentDirty} onBranchChanged={reloadAfterBranchChange}/><ProblemsPanel/><DeliveryPanel/><AdminPanel/><AssignmentPanel/><PluginAdminPanel/>
+      <Canvas/><RouteEditor/><CaddyfileEditor/><GitPanel projectID={currentProject.id} contentDirty={contentDirty} onBranchChanged={reloadAfterBranchChange}/><ProblemsPanel/><DeliveryPanel/><AdminPanel/><AssignmentPanel/><PluginAdminPanel/>
       <footer>{problems.length?`⚠ ${problems.length} problem${problems.length===1?'':'s'}`:'✓ No problems'} <span>{delivery} · API v1</span></footer>
       {conflictMessage&&<div className="conflict-message" role="status">{conflictMessage}</div>}
     </div>

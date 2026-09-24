@@ -8,8 +8,10 @@ API — в [Group Releases](https://liapoldus.github.io/gateway/api/groups) и
 
 ## Workspace и редактор групп
 
-- [ ] Заменить Gateway route/config editor на native Caddyfile editor; не
-  создавать собственную DSL-модель listeners/routes/upstreams/policies.
+- [ ] Встроить native Caddyfile source editor в системную/group workspace.
+  Текущий отдельный редактор хранит сырой `Caddyfile` в корне проекта и не
+  привязан к Gateway group или Group Publish; не создавать собственную
+  DSL-модель listeners/routes/upstreams/policies.
 - [ ] Реализовать системную страницу групп: system options, application groups,
   current/previous revisions, Caddy build identity и runtime drift.
 - [ ] Реализовать Caddyfile diagnostics/adaptation через Gateway API и показать
@@ -77,8 +79,10 @@ API — в [Group Releases](https://liapoldus.github.io/gateway/api/groups) и
   Gateway group: текущие `SiteID` и `EnvironmentID` не определяют однозначно
   `groupId` (group может содержать несколько frontend roots, а несколько
   групп активны одновременно).
-- [ ] Добавить источник и редактор/хранилище native Caddyfile в Constructor.
-  Текущая модель deployment содержит Site, Environment, Snapshot и Build, а
+- [ ] Согласовать связь уже редактируемого проектного `Caddyfile` с
+  неизменяемым Caddyfile в Gateway group release; не считать корневой файл
+  источником group revision без утверждённой модели. Текущая модель deployment
+  содержит Site, Environment, Snapshot и Build, а
   build artifact — только каталог `dist`; Group Releases API требует
   обязательные `metadata` и UTF-8 `caddyfile`, плюс не более одного optional
   `.tar.gz` archive. Не отправлять пустой/синтетический Caddyfile и не выводить

@@ -72,9 +72,15 @@ cancellation policy.
 Operational snapshots and builds are persisted in SQLite. Set `CONSTRUCTOR_DB`
 to choose the database file; PostgreSQL is a deployment-level adapter option.
 
-Set `GATEWAY_URL` and optional `GATEWAY_TOKEN` to enable the Gateway publish
-adapter and fixed Plugin Admin REST bridge. The token remains in the Go process;
-the browser can call only the documented `/api/plugins/.../admin/*` routes, not
-an arbitrary Gateway URL. Without `GATEWAY_URL`, deployment and Plugin Admin
-requests fail visibly; Constructor never reports a publish or rollback as
-successful when Gateway is unavailable.
+При подключении Gateway Constructor использует только фиксированный
+Management REST API. Service key сохраняется в OS credential store через Go
+backend; React renderer не хранит credential в browser storage и не получает
+универсальный proxy к Gateway. Plugin Admin доступен только по заранее
+описанным namespaced routes.
+
+Собранный frontend публикуется как часть Caddyfile group revision через один
+`POST /api/groups/{id}/releases`: metadata с idempotency/CAS, Caddyfile и один
+необязательный `.tar.gz` с immutable frontend roots. Constructor не отправляет
+filesystem source path и не использует старый site-oriented publish API.
+Без настроенного Gateway Constructor явно показывает недоступность и никогда
+не объявляет publish/rollback успешным без terminal Gateway operation.

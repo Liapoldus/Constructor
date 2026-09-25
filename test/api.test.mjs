@@ -35,6 +35,17 @@ test('Gateway group and revision views use Constructor read proxies, not legacy 
     assert.equal(requests.some(path=>path.includes('/api/sites')),false)
   }finally{restore()}
 })
+test('Gateway release pagination requests the next opaque cursor',async()=>{
+  const requests=[]
+  const restore=installConstructorBridge({request:async(url)=>{
+    requests.push(String(url))
+    return new Response(JSON.stringify({items:[],nextCursor:null,requestId:'page-request'}))
+  }})
+  try{
+    await listGatewayGroupReleases('frontend',{cursor:'opaque cursor/+',limit:50})
+    assert.deepEqual(requests,['/api/v1/gateway/groups/frontend/releases?limit=50&cursor=opaque+cursor%2F%2B'])
+  }finally{restore()}
+})
 test('Gateway group list accepts every canonical operational state',async()=>{
   const states=['empty','ready','applying','drift-blocked','failed']
   const restore=installConstructorBridge({request:async()=>new Response(JSON.stringify({items:states.map((state,index)=>({id:`group-${index}`,kind:'application',active:true,currentRevision:null,previousRevision:null,state})),requestId:'states-request'}))})

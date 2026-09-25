@@ -89,8 +89,9 @@ API — в [Group Releases](https://liapoldus.github.io/gateway/api/groups) и
   `GET /api/v1/gateway/groups/{id}/releases` через typed Gateway client, а
   Delivery panel показывает группы, current/previous и страницы ревизий.
   Доступ требует Constructor permission `gateway.groups.read`. Ответы списка не
-  содержат Caddyfile или filesystem paths. Пагинация UI пока показывает первые
-  25 ревизий; загрузка следующей страницы остаётся TODO.
+  содержат Caddyfile или filesystem paths. Delivery panel загружает следующие
+  страницы opaque cursor-ом, позволяет вернуться назад и кэширует позицию и
+  страницы отдельно для каждой группы; новая группа начинает с первой страницы.
 - [ ] Не вызывать старые `/api/sites` publish/rollback endpoints в новых
   сценариях; старый HTTP client не является совместимой заменой. Публикацию
   Constructor не считать доступной/успешной без готовой group-release write

@@ -1,6 +1,6 @@
 import {create} from 'zustand'
 import {useEffect, useRef, useState} from 'react'
-import {activateProject, activeProject, assignRole, buildSnapshot, CaddyfileSaveError, ContentRevisionConflict, createPermission, createProject, createProjectPage, createProjectSite, createRole, createSnapshot, createUser, deploySnapshot, deploymentTargetState, generateRoutes, grantPermission, listProjectAssets, listProjects, listProjectThemes, listSiteDocuments, listGatewayGroups, listGatewayGroupReleases, loadCaddyfile, loadDeliveryHistory, loadProject, loadRBAC, loadRoutes, rollbackDeployment, saveCaddyfile, saveEnvironment, saveProjectContent, saveProjectTheme, saveRoutes, saveSiteDocument, startPreview, stopPreview, toRuntimeContent, uploadProjectAsset, validateProject, type AssetItem, type Diagnostic, type Environment, type GatewayGroup, type GatewayGroupRevisionSummary, type PreviewDraftMessage, type Project, type RouteDocument, type RuntimeContent, type SiteDocument, type SitePage, type ThemeDocument, type ThemeTokenType} from './api'
+import {activateProject, activeProject, assignRole, buildSnapshot, CaddyfileSaveError, ContentRevisionConflict, createPermission, createProject, createProjectPage, createProjectSite, createRole, createSnapshot, createUser, deploySnapshot, deploymentTargetState, generateRoutes, grantPermission, listProjectAssets, listProjects, listProjectThemes, listSiteDocuments, listGatewayGroups, listGatewayGroupReleases, loadCaddyfile, loadDeliveryHistory, loadProject, loadRBAC, loadRoutes, rollbackDeployment, saveCaddyfile, saveEnvironment, saveProjectContent, saveProjectTheme, saveRoutes, saveSiteDocument, startPreview, stopPreview, toRuntimeContent, uploadProjectAsset, validateProject, type AssetItem, type Diagnostic, type Environment, type GatewayGroup, type PreviewDraftMessage, type Project, type RouteDocument, type RuntimeContent, type SiteDocument, type SitePage, type ThemeDocument, type ThemeTokenType} from './api'
 import {caddyfileDraftForProject,createCaddyfileDraft,createCaddyfileDraftCache,editCaddyfileDraft,emptyCaddyfileDraft,failCaddyfileSave,finishCaddyfileSave,startCaddyfileSave,type CaddyfileDraft} from './caddyfile-draft'
 import {CaddyfileEditorView} from './caddyfile-editor-view'
 import {redoHistory, recordHistory, undoHistory, type HistoryEntry} from './editor-history'
@@ -11,6 +11,7 @@ import {mergeContentDocuments} from './content-merge'
 import {AssetField} from './asset-field'
 import {GitPanel} from './git-panel'
 import {PluginAdminPanel} from './plugin-admin-panel'
+import {appendGatewayRevisionPage,cacheGatewayRevisionView,createGatewayRevisionView,gatewayRevisionViewForGroup,selectGatewayRevisionPage,type GatewayRevisionViewCache} from './gateway-revision-pages'
 
 type ContentDocument = Project['contentDocument']
 type EditorSelection = {selected:string;selectedPageID:string;selectedInstanceID:string;problems:EditorProblem[]}
@@ -554,7 +555,9 @@ function DeliveryPanel() {
   const [message, setMessage] = useState('')
   const [gatewayGroups,setGatewayGroups]=useState<GatewayGroup[]>([])
   const [selectedGatewayGroup,setSelectedGatewayGroup]=useState('')
-  const [gatewayRevisions,setGatewayRevisions]=useState<GatewayGroupRevisionSummary[]>([])
+  const [gatewayRevisionViews,setGatewayRevisionViews]=useState<GatewayRevisionViewCache>({})
+  const [gatewayRevisionLoading,setGatewayRevisionLoading]=useState<Record<string,boolean>>({})
+  const [gatewayRevisionErrors,setGatewayRevisionErrors]=useState<Record<string,string>>({})
   const [gatewayMessage,setGatewayMessage]=useState('Loading Gateway groups…')
 
   useEffect(() => {
@@ -574,12 +577,51 @@ function DeliveryPanel() {
     }).catch(error=>setGatewayMessage(error instanceof Error?error.message:'Gateway groups unavailable'))
   },[refresh])
   useEffect(()=>{
-    if(!selectedGatewayGroup){setGatewayRevisions([]);return}
-    listGatewayGroupReleases(selectedGatewayGroup,{limit:25}).then(result=>{
-      setGatewayRevisions(result.items)
-      setGatewayMessage(result.nextCursor?'Showing the first 25 revisions.':'')
-    }).catch(error=>{setGatewayRevisions([]);setGatewayMessage(error instanceof Error?error.message:'Gateway revisions unavailable')})
+    if(!selectedGatewayGroup)return
+    if(gatewayRevisionViewForGroup(gatewayRevisionViews,selectedGatewayGroup))return
+    let active=true
+    const groupID=selectedGatewayGroup
+    setGatewayRevisionLoading(current=>({...current,[groupID]:true}))
+    setGatewayRevisionErrors(current=>({...current,[groupID]:''}))
+    listGatewayGroupReleases(groupID,{limit:50}).then(result=>{
+      if(active)setGatewayRevisionViews(current=>gatewayRevisionViewForGroup(current,groupID)?current:cacheGatewayRevisionView(current,groupID,createGatewayRevisionView(result)))
+    }).catch(error=>{
+      if(active)setGatewayRevisionErrors(current=>({...current,[groupID]:error instanceof Error?error.message:'Gateway revisions unavailable'}))
+    }).finally(()=>{if(active)setGatewayRevisionLoading(current=>({...current,[groupID]:false}))})
+    return()=>{active=false}
   },[selectedGatewayGroup,refresh])
+
+  const currentGatewayRevisionView=gatewayRevisionViewForGroup(gatewayRevisionViews,selectedGatewayGroup)
+  const currentGatewayRevisionPage=currentGatewayRevisionView?selectGatewayRevisionPage(currentGatewayRevisionView,currentGatewayRevisionView.pageIndex):undefined
+  const loadNextGatewayRevisionPage=async()=>{
+    const groupID=selectedGatewayGroup
+    const view=gatewayRevisionViews[groupID]
+    const current=view&&selectGatewayRevisionPage(view,view.pageIndex)
+    if(!groupID||!view||!current)return
+    if(view.pages[view.pageIndex+1]){
+      setGatewayRevisionViews(state=>{
+        const currentView=gatewayRevisionViewForGroup(state,groupID)??view
+        return cacheGatewayRevisionView(state,groupID,{...currentView,pageIndex:currentView.pageIndex+1})
+      })
+      return
+    }
+    if(!current.nextCursor||gatewayRevisionLoading[groupID])return
+    const cursor=current.nextCursor
+    setGatewayRevisionLoading(state=>({...state,[groupID]:true}))
+    setGatewayRevisionErrors(state=>({...state,[groupID]:''}))
+    try{
+      const result=await listGatewayGroupReleases(groupID,{cursor,limit:50})
+      setGatewayRevisionViews(state=>cacheGatewayRevisionView(state,groupID,appendGatewayRevisionPage(gatewayRevisionViewForGroup(state,groupID)??view,cursor,result)))
+    }catch(error){setGatewayRevisionErrors(state=>({...state,[groupID]:error instanceof Error?error.message:'Gateway revisions unavailable'}))}
+    finally{setGatewayRevisionLoading(state=>({...state,[groupID]:false}))}
+  }
+  const selectPreviousGatewayRevisionPage=()=>{
+    const groupID=selectedGatewayGroup
+    setGatewayRevisionViews(state=>{
+      const view=state[groupID]
+      return view?cacheGatewayRevisionView(state,groupID,{...view,pageIndex:Math.max(0,view.pageIndex-1)}):state
+    })
+  }
 
   const rollback = async (deployment: {id:string;siteId:string;environmentId:string}) => {
     const target = `${deployment.siteId}/${deployment.environmentId}`
@@ -598,7 +640,12 @@ function DeliveryPanel() {
       <b>Gateway groups</b>
       {gatewayGroups.length>0&&<select aria-label="Gateway group" value={selectedGatewayGroup} onChange={event=>setSelectedGatewayGroup(event.target.value)}>{gatewayGroups.map(group=><option key={group.id} value={group.id}>{group.id} · {group.kind} · {group.state}</option>)}</select>}
       {selectedGatewayGroup&&<span>Current: {gatewayGroups.find(group=>group.id===selectedGatewayGroup)?.currentRevision??'none'} · Previous: {gatewayGroups.find(group=>group.id===selectedGatewayGroup)?.previousRevision??'none'}</span>}
-      {gatewayRevisions.map(revision=><span key={revision.id}>Revision {revision.id.slice(0,12)} · Caddyfile SHA-256 {revision.caddyfileDigest.slice(0,12)}{revision.artifactDigest?` · artifact ${revision.artifactDigest.slice(0,12)}`:''} · {revision.createdAt}</span>)}
+      {currentGatewayRevisionPage?.items.map(revision=><span key={revision.id}>Revision {revision.id.slice(0,12)} · Caddyfile SHA-256 {revision.caddyfileDigest.slice(0,12)}{revision.artifactDigest?` · artifact ${revision.artifactDigest.slice(0,12)}`:''} · {revision.createdAt}</span>)}
+      {selectedGatewayGroup&&gatewayRevisionLoading[selectedGatewayGroup]&&<span role="status">Loading Gateway revisions…</span>}
+      {selectedGatewayGroup&&gatewayRevisionErrors[selectedGatewayGroup]&&<span role="alert">{gatewayRevisionErrors[selectedGatewayGroup]}</span>}
+      {currentGatewayRevisionView&&<span>Revision page {currentGatewayRevisionView.pageIndex+1}</span>}
+      {currentGatewayRevisionView&&currentGatewayRevisionView.pageIndex>0&&<button disabled={gatewayRevisionLoading[selectedGatewayGroup]} onClick={selectPreviousGatewayRevisionPage}>Previous revisions</button>}
+      {currentGatewayRevisionPage?.nextCursor&&<button disabled={gatewayRevisionLoading[selectedGatewayGroup]} onClick={()=>void loadNextGatewayRevisionPage()}>Next revisions</button>}
       {gatewayMessage&&<span role="status">{gatewayMessage}</span>}
     </div>
     <span>Snapshots: {snapshots.length}</span>

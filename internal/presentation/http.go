@@ -13,32 +13,37 @@ import (
 )
 
 type Handler struct {
-	projects     *application.ProjectService
-	preview      *application.PreviewService
-	registry     *application.ProjectRegistryService
-	workspace    *application.WorkspaceService
-	routes       *application.RouteService
-	delivery     *application.DeliveryService
-	git          *application.GitService
-	repositories *application.RepositoryService
-	merge        *application.MergeService
-	deploy       *application.DeploymentService
-	auth         *application.AuthService
-	rbac         *application.RBACService
-	projectFiles *application.ProjectFileService
-	pluginAdmin  *application.PluginAdminService
+	projects      *application.ProjectService
+	preview       *application.PreviewService
+	registry      *application.ProjectRegistryService
+	workspace     *application.WorkspaceService
+	routes        *application.RouteService
+	delivery      *application.DeliveryService
+	git           *application.GitService
+	repositories  *application.RepositoryService
+	merge         *application.MergeService
+	deploy        *application.DeploymentService
+	auth          *application.AuthService
+	rbac          *application.RBACService
+	projectFiles  *application.ProjectFileService
+	pluginAdmin   *application.PluginAdminService
+	gatewayGroups *application.GatewayGroupCatalogService
 }
 
 func NewHandler(projects *application.ProjectService, preview *application.PreviewService, registry *application.ProjectRegistryService, workspace *application.WorkspaceService, routes *application.RouteService, delivery *application.DeliveryService, git *application.GitService, repositories *application.RepositoryService, merge *application.MergeService, deploy *application.DeploymentService, auth *application.AuthService, rbac *application.RBACService, projectFiles ...*application.ProjectFileService) http.Handler {
-	return newHandler(projects, preview, registry, workspace, routes, delivery, git, repositories, merge, deploy, auth, rbac, nil, projectFiles...)
+	return newHandlerWithGatewayGroups(projects, preview, registry, workspace, routes, delivery, git, repositories, merge, deploy, auth, rbac, nil, nil, projectFiles...)
 }
 
 func NewHandlerWithPluginAdmin(projects *application.ProjectService, preview *application.PreviewService, registry *application.ProjectRegistryService, workspace *application.WorkspaceService, routes *application.RouteService, delivery *application.DeliveryService, git *application.GitService, repositories *application.RepositoryService, merge *application.MergeService, deploy *application.DeploymentService, auth *application.AuthService, rbac *application.RBACService, pluginAdmin *application.PluginAdminService, projectFiles ...*application.ProjectFileService) http.Handler {
-	return newHandler(projects, preview, registry, workspace, routes, delivery, git, repositories, merge, deploy, auth, rbac, pluginAdmin, projectFiles...)
+	return newHandlerWithGatewayGroups(projects, preview, registry, workspace, routes, delivery, git, repositories, merge, deploy, auth, rbac, pluginAdmin, nil, projectFiles...)
 }
 
-func newHandler(projects *application.ProjectService, preview *application.PreviewService, registry *application.ProjectRegistryService, workspace *application.WorkspaceService, routes *application.RouteService, delivery *application.DeliveryService, git *application.GitService, repositories *application.RepositoryService, merge *application.MergeService, deploy *application.DeploymentService, auth *application.AuthService, rbac *application.RBACService, pluginAdmin *application.PluginAdminService, projectFiles ...*application.ProjectFileService) http.Handler {
-	h := &Handler{projects: projects, preview: preview, registry: registry, workspace: workspace, routes: routes, delivery: delivery, git: git, repositories: repositories, merge: merge, deploy: deploy, auth: auth, rbac: rbac, pluginAdmin: pluginAdmin}
+func NewHandlerWithGatewayGroups(projects *application.ProjectService, preview *application.PreviewService, registry *application.ProjectRegistryService, workspace *application.WorkspaceService, routes *application.RouteService, delivery *application.DeliveryService, git *application.GitService, repositories *application.RepositoryService, merge *application.MergeService, deploy *application.DeploymentService, auth *application.AuthService, rbac *application.RBACService, pluginAdmin *application.PluginAdminService, gatewayGroups *application.GatewayGroupCatalogService, projectFiles ...*application.ProjectFileService) http.Handler {
+	return newHandlerWithGatewayGroups(projects, preview, registry, workspace, routes, delivery, git, repositories, merge, deploy, auth, rbac, pluginAdmin, gatewayGroups, projectFiles...)
+}
+
+func newHandlerWithGatewayGroups(projects *application.ProjectService, preview *application.PreviewService, registry *application.ProjectRegistryService, workspace *application.WorkspaceService, routes *application.RouteService, delivery *application.DeliveryService, git *application.GitService, repositories *application.RepositoryService, merge *application.MergeService, deploy *application.DeploymentService, auth *application.AuthService, rbac *application.RBACService, pluginAdmin *application.PluginAdminService, gatewayGroups *application.GatewayGroupCatalogService, projectFiles ...*application.ProjectFileService) http.Handler {
+	h := &Handler{projects: projects, preview: preview, registry: registry, workspace: workspace, routes: routes, delivery: delivery, git: git, repositories: repositories, merge: merge, deploy: deploy, auth: auth, rbac: rbac, pluginAdmin: pluginAdmin, gatewayGroups: gatewayGroups}
 	if len(projectFiles) > 0 {
 		h.projectFiles = projectFiles[0]
 	}
@@ -85,6 +90,8 @@ func newHandler(projects *application.ProjectService, preview *application.Previ
 	mux.HandleFunc("/api/v1/role-permissions", h.rolePermissions)
 	mux.HandleFunc("/api/plugins", h.pluginAdminAPI)
 	mux.HandleFunc("/api/plugins/", h.pluginAdminAPI)
+	mux.HandleFunc("/api/v1/gateway/groups", h.gatewayGroupsAPI)
+	mux.HandleFunc("/api/v1/gateway/groups/", h.gatewayGroupsAPI)
 	return requestIDMiddleware(browserOriginBoundary(permissionMiddleware(mux, auth)))
 }
 
@@ -346,6 +353,9 @@ func permissionMiddleware(next http.Handler, auth *application.AuthService) http
 	})
 }
 func requiredPermission(method, path string) string {
+	if (method == http.MethodGet || method == http.MethodHead) && (path == "/api/v1/gateway/groups" || strings.HasPrefix(path, "/api/v1/gateway/groups/")) {
+		return "gateway.groups.read"
+	}
 	if (method == http.MethodGet || method == http.MethodHead) && strings.HasSuffix(path, "/files/Caddyfile") && strings.HasPrefix(path, "/api/v1/projects/") {
 		return "content.read"
 	}

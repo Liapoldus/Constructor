@@ -1,6 +1,6 @@
 import {create} from 'zustand'
 import {useEffect, useRef, useState} from 'react'
-import {activateProject, activeProject, assignRole, buildSnapshot, CaddyfileSaveError, ContentRevisionConflict, createPermission, createProject, createProjectPage, createProjectSite, createRole, createSnapshot, createUser, deploySnapshot, deploymentTargetState, generateRoutes, grantPermission, listProjectAssets, listProjects, listProjectThemes, listSiteDocuments, loadCaddyfile, loadDeliveryHistory, loadProject, loadRBAC, loadRoutes, rollbackDeployment, saveCaddyfile, saveEnvironment, saveProjectContent, saveProjectTheme, saveRoutes, saveSiteDocument, startPreview, stopPreview, toRuntimeContent, uploadProjectAsset, validateProject, type AssetItem, type Diagnostic, type Environment, type PreviewDraftMessage, type Project, type RouteDocument, type RuntimeContent, type SiteDocument, type SitePage, type ThemeDocument, type ThemeTokenType} from './api'
+import {activateProject, activeProject, assignRole, buildSnapshot, CaddyfileSaveError, ContentRevisionConflict, createPermission, createProject, createProjectPage, createProjectSite, createRole, createSnapshot, createUser, deploySnapshot, deploymentTargetState, generateRoutes, grantPermission, listProjectAssets, listProjects, listProjectThemes, listSiteDocuments, listGatewayGroups, listGatewayGroupReleases, loadCaddyfile, loadDeliveryHistory, loadProject, loadRBAC, loadRoutes, rollbackDeployment, saveCaddyfile, saveEnvironment, saveProjectContent, saveProjectTheme, saveRoutes, saveSiteDocument, startPreview, stopPreview, toRuntimeContent, uploadProjectAsset, validateProject, type AssetItem, type Diagnostic, type Environment, type GatewayGroup, type GatewayGroupRevisionSummary, type PreviewDraftMessage, type Project, type RouteDocument, type RuntimeContent, type SiteDocument, type SitePage, type ThemeDocument, type ThemeTokenType} from './api'
 import {caddyfileDraftForProject,createCaddyfileDraft,createCaddyfileDraftCache,editCaddyfileDraft,emptyCaddyfileDraft,failCaddyfileSave,finishCaddyfileSave,startCaddyfileSave,type CaddyfileDraft} from './caddyfile-draft'
 import {CaddyfileEditorView} from './caddyfile-editor-view'
 import {redoHistory, recordHistory, undoHistory, type HistoryEntry} from './editor-history'
@@ -552,6 +552,10 @@ function DeliveryPanel() {
   const [deployments, setDeployments] = useState<{id:string;status:string;siteId:string;environmentId:string;action?:string}[]>([])
   const [refresh, setRefresh] = useState(0)
   const [message, setMessage] = useState('')
+  const [gatewayGroups,setGatewayGroups]=useState<GatewayGroup[]>([])
+  const [selectedGatewayGroup,setSelectedGatewayGroup]=useState('')
+  const [gatewayRevisions,setGatewayRevisions]=useState<GatewayGroupRevisionSummary[]>([])
+  const [gatewayMessage,setGatewayMessage]=useState('Loading Gateway groups…')
 
   useEffect(() => {
     loadDeliveryHistory().then(result => {
@@ -561,6 +565,21 @@ function DeliveryPanel() {
       setMessage('')
     }).catch(error => setMessage(error instanceof Error ? error.message : 'Delivery history unavailable'))
   }, [refresh])
+
+  useEffect(()=>{
+    listGatewayGroups().then(result=>{
+      setGatewayGroups(result.items)
+      setSelectedGatewayGroup(current=>current&&result.items.some(group=>group.id===current)?current:result.items[0]?.id??'')
+      setGatewayMessage(result.items.length?'':'No Gateway groups are configured.')
+    }).catch(error=>setGatewayMessage(error instanceof Error?error.message:'Gateway groups unavailable'))
+  },[refresh])
+  useEffect(()=>{
+    if(!selectedGatewayGroup){setGatewayRevisions([]);return}
+    listGatewayGroupReleases(selectedGatewayGroup,{limit:25}).then(result=>{
+      setGatewayRevisions(result.items)
+      setGatewayMessage(result.nextCursor?'Showing the first 25 revisions.':'')
+    }).catch(error=>{setGatewayRevisions([]);setGatewayMessage(error instanceof Error?error.message:'Gateway revisions unavailable')})
+  },[selectedGatewayGroup,refresh])
 
   const rollback = async (deployment: {id:string;siteId:string;environmentId:string}) => {
     const target = `${deployment.siteId}/${deployment.environmentId}`
@@ -575,6 +594,13 @@ function DeliveryPanel() {
 
   return <section className="delivery-panel">
     <b>Delivery</b>
+    <div className="gateway-group-browser" aria-label="Gateway groups and revisions">
+      <b>Gateway groups</b>
+      {gatewayGroups.length>0&&<select aria-label="Gateway group" value={selectedGatewayGroup} onChange={event=>setSelectedGatewayGroup(event.target.value)}>{gatewayGroups.map(group=><option key={group.id} value={group.id}>{group.id} · {group.kind} · {group.state}</option>)}</select>}
+      {selectedGatewayGroup&&<span>Current: {gatewayGroups.find(group=>group.id===selectedGatewayGroup)?.currentRevision??'none'} · Previous: {gatewayGroups.find(group=>group.id===selectedGatewayGroup)?.previousRevision??'none'}</span>}
+      {gatewayRevisions.map(revision=><span key={revision.id}>Revision {revision.id.slice(0,12)} · Caddyfile SHA-256 {revision.caddyfileDigest.slice(0,12)}{revision.artifactDigest?` · artifact ${revision.artifactDigest.slice(0,12)}`:''} · {revision.createdAt}</span>)}
+      {gatewayMessage&&<span role="status">{gatewayMessage}</span>}
+    </div>
     <span>Snapshots: {snapshots.length}</span>
     {snapshots.slice(0, 2).map(snapshot => <span key={snapshot.id}>Snapshot {snapshot.status} · {snapshot.gitCommit.slice(0, 7)}</span>)}
     <span>Builds: {builds.length}</span>

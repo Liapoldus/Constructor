@@ -37,8 +37,9 @@ API — в [Group Releases](https://liapoldus.github.io/gateway/api/groups) и
   показывать размер, digest, validation и archive limit errors до активации.
 - [ ] Поддержать operation polling, стабильный retry с тем же key/digest,
   optimistic conflict и crash/reconnect recovery.
-- [ ] Показать current/previous group revisions и выполнять rollback с
-  expectedCurrentRevision; не изменять plugin settings при group rollback.
+- [ ] Выполнять rollback с expectedCurrentRevision; не изменять plugin settings
+  при group rollback. Read-only group/revision catalog уже показывается в
+  Delivery panel, но это ещё не полноценная системная страница.
 - [ ] Удалить site-oriented publish workflow, site.yaml editor и старый
   /api/sites/{slug}/publish контракт.
 - [ ] Не отмечать deployment успешным, пока Gateway operation не завершилась
@@ -83,15 +84,17 @@ API — в [Group Releases](https://liapoldus.github.io/gateway/api/groups) и
   публикации. Код пока оставлен: deployment UI и его API остаются пользовательской
   поверхностью Constructor, а удалённые Core endpoints сами по себе не доказывают,
   что эту поверхность можно удалить.
-- [x] Установлено: типизированный `HTTPGatewayGroupClient` и его тесты уже есть
-  (`internal/infrastructure/gateway_group_client.go`,
-  `internal/infrastructure/gateway_group_client_test.go`), но клиент не подключён
-  в `cmd/constructor-api` и не используется интерфейсом; это ещё не end-to-end
-  интеграция.
+- [x] Подключено read-only чтение Gateway groups и metadata-only revisions:
+  Constructor backend проксирует `GET /api/v1/gateway/groups` и
+  `GET /api/v1/gateway/groups/{id}/releases` через typed Gateway client, а
+  Delivery panel показывает группы, current/previous и страницы ревизий.
+  Доступ требует Constructor permission `gateway.groups.read`. Ответы списка не
+  содержат Caddyfile или filesystem paths. Пагинация UI пока показывает первые
+  25 ревизий; загрузка следующей страницы остаётся TODO.
 - [ ] Не вызывать старые `/api/sites` publish/rollback endpoints в новых
-  сценариях. После появления Group Releases API в Core подключить групповой
-  клиент к Constructor backend и UI; до этого явно показывать публикацию как
-  недоступную/несовместимую, а не сообщать об успешном deployment.
+  сценариях; старый HTTP client не является совместимой заменой. Публикацию
+  Constructor не считать доступной/успешной без готовой group-release write
+  интеграции.
 
 - [ ] Согласовать и реализовать модель связи Constructor delivery target с
   Gateway group: текущие `SiteID` и `EnvironmentID` не определяют однозначно
@@ -112,11 +115,11 @@ API — в [Group Releases](https://liapoldus.github.io/gateway/api/groups) и
   `current`/`previous`: документированный Gateway rollback меняет предыдущую
   revision всей группы, тогда как Constructor сейчас адресует deployment по
   `(SiteID, EnvironmentID)`.
-- [ ] Пока Core не предоставляет Group Releases endpoints, интеграция
-  Constructor→Gateway остаётся незавершённой. Старый HTTP client не является
-  совместимой заменой; не удалять его UI/API без отдельного решения по судьбе
-  deployment-функции и не заявлять соответствие Group Releases контракту только
-  на основании unit-тестов изолированного group client.
+- [ ] Group release publish/detail/rollback ещё не подключены к Constructor UI.
+  Не включать write actions: Gateway group publish/rollback endpoints пока не
+  предоставляют требуемую полную интеграцию. Не удалять старый deployment UI/API
+  без отдельного решения по судьбе функции. Read-only catalog не разрешает
+  Site/Environment→group mapping и не является публикацией.
 
 ## Остальные продуктовые работы
 

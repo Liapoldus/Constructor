@@ -35,6 +35,10 @@ test('Gateway group and revision views use Constructor read proxies, not legacy 
     assert.equal(requests.some(path=>path.includes('/api/sites')),false)
   }finally{restore()}
 })
+test('Gateway revision list rejects content or filesystem paths instead of rendering them',async()=>{
+  const restore=installConstructorBridge({request:async()=>new Response(JSON.stringify({items:[{id:'a'.repeat(64),groupId:'frontend',caddyfile:'secret config',caddyfileDigest:'b'.repeat(64),artifactDigest:null,createdAt:'2026-09-25T10:00:00Z',caddyfilePath:'/private/revisions/file'}],nextCursor:null,requestId:'request'}))})
+  try{await assert.rejects(listGatewayGroupReleases('frontend'),/metadata-only response/)}finally{restore()}
+})
 test('page creation sends the selected Site and optimistic revisions',async()=>{
   const originalFetch=globalThis.fetch;let body
   globalThis.fetch=async(url,options)=>{

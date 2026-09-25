@@ -35,6 +35,9 @@ export type PreviewDraftMessage = {protocol:1;source:'liapoldus.constructor';typ
 export type GitBranch = {name:string;commit:string;current:boolean}
 export type GitCommitRecord = {hash:string;message:string;author:string;date:string}
 export type GatewayPluginInstance = {id:string;state:'starting'|'ready'|'unhealthy'|'stopped';capabilities:string[];limits:Record<string,unknown>;health:boolean}
+export type GatewayGroup = {id:string;kind:'system'|'application';active:boolean;currentRevision:string|null;previousRevision:string|null;state:'empty'|'ready'}
+export type GatewayGroupRevisionSummary = {id:string;groupId:string;caddyfileDigest:string;artifactDigest:string|null;createdAt:string;actor?:string}
+export type GatewayGroupRevisionPage = {items:GatewayGroupRevisionSummary[];nextCursor:string|null;requestId:string}
 export class PluginSurfaceChangedError extends Error {
   constructor(){super('The plugin Admin Surface changed. Reload its schema before continuing.');this.name='PluginSurfaceChangedError'}
 }
@@ -97,6 +100,44 @@ export async function listGatewayPlugins():Promise<GatewayPluginInstance[]> {
   })
   if(new Set(items.map(item=>item.id)).size!==items.length)throw new Error('Gateway returned duplicate plugin instance IDs')
   return items
+}
+export async function listGatewayGroups():Promise<{items:GatewayGroup[];requestId:string}> {
+  const response=await constructorRequest('/api/v1/gateway/groups')
+  if(!response.ok)throw new Error(await apiErrorMessage(response,'Gateway groups unavailable'))
+  const body=await response.json() as {items?:unknown;requestId?:unknown}
+  if(!Array.isArray(body.items)||typeof body.requestId!=='string')throw new Error('Constructor returned an invalid Gateway group list')
+  const seen=new Set<string>()
+  const items=body.items.map((item):GatewayGroup=>{
+    if(!item||typeof item!=='object')throw new Error('Constructor returned an invalid Gateway group')
+    const value=item as Record<string,unknown>
+    if(typeof value.id!=='string'||!gatewayIDPattern.test(value.id)||seen.has(value.id)||!['system','application'].includes(String(value.kind))||typeof value.active!=='boolean'||!['empty','ready'].includes(String(value.state)))throw new Error('Constructor returned an invalid Gateway group')
+    if(!(value.currentRevision===null||typeof value.currentRevision==='string')||!(value.previousRevision===null||typeof value.previousRevision==='string'))throw new Error('Constructor returned an invalid Gateway group revision pointer')
+    seen.add(value.id)
+    return {id:value.id,kind:value.kind as GatewayGroup['kind'],active:value.active,currentRevision:value.currentRevision as string|null,previousRevision:value.previousRevision as string|null,state:value.state as GatewayGroup['state']}
+  })
+  return {items,requestId:body.requestId}
+}
+export async function listGatewayGroupReleases(groupID:string,options:{cursor?:string;limit?:number}={}):Promise<GatewayGroupRevisionPage> {
+  const group=gatewayID(groupID,'Gateway group ID')
+  const limit=options.limit??50
+  if(!Number.isInteger(limit)||limit<1||limit>100)throw new Error('Gateway release page limit must be between 1 and 100')
+  if(options.cursor!==undefined&&(options.cursor.length>4096||/[\u0000-\u001f\u007f]/.test(options.cursor)))throw new Error('Gateway release cursor is invalid')
+  const query=new URLSearchParams({limit:String(limit)})
+  if(options.cursor)query.set('cursor',options.cursor)
+  const response=await constructorRequest(`/api/v1/gateway/groups/${group}/releases?${query}`)
+  if(!response.ok)throw new Error(await apiErrorMessage(response,'Gateway group releases unavailable'))
+  const body=await response.json() as {items?:unknown;nextCursor?:unknown;requestId?:unknown}
+  if(!Array.isArray(body.items)||typeof body.requestId!=='string'||!(body.nextCursor===null||typeof body.nextCursor==='string'))throw new Error('Constructor returned an invalid Gateway release page')
+  const seen=new Set<string>()
+  const items=body.items.map((item):GatewayGroupRevisionSummary=>{
+    if(!item||typeof item!=='object')throw new Error('Constructor returned an invalid Gateway revision summary')
+    const value=item as Record<string,unknown>
+    if(typeof value.id!=='string'||!/^([a-fA-F0-9]{64})$/.test(value.id)||seen.has(value.id)||value.groupId!==groupID||typeof value.caddyfileDigest!=='string'||!/^([a-fA-F0-9]{64})$/.test(value.caddyfileDigest)||!(value.artifactDigest===null||typeof value.artifactDigest==='string'&&/^([a-fA-F0-9]{64})$/.test(value.artifactDigest))||typeof value.createdAt!=='string'||!Number.isFinite(Date.parse(value.createdAt))||('actor'in value&&typeof value.actor!=='string'))throw new Error('Constructor returned an invalid Gateway revision summary')
+    if('caddyfile'in value||'caddyfilePath'in value||'artifactPath'in value||'frontends'in value)throw new Error('Constructor returned revision content in a metadata-only response')
+    seen.add(value.id)
+    return {id:value.id,groupId:value.groupId as string,caddyfileDigest:value.caddyfileDigest,artifactDigest:value.artifactDigest as string|null,createdAt:value.createdAt,actor:typeof value.actor==='string'?value.actor:undefined}
+  })
+  return {items,nextCursor:body.nextCursor as string|null,requestId:body.requestId}
 }
 export async function loadPluginAdminSurface(instance:string):Promise<AdminSurface> {
   const response=await constructorRequest(`/api/plugins/${gatewayID(instance,'Plugin ID')}/admin/surface`)

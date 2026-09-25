@@ -65,7 +65,7 @@ func (gatewayGroupsReadFixture) ListReleases(_ context.Context, groupID, cursor 
 }
 
 func TestGatewayGroupReadAPIForwardsMetadataOnlyGroupsAndRevisions(t *testing.T) {
-	handler := NewHandlerWithGatewayGroups(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, gatewayGroupsReadFixture{})
+	handler := NewHandlerWithGatewayGroups(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, application.NewAuthService(previewTestAuthorizer{}), nil, nil, application.NewGatewayGroupCatalogService(gatewayGroupsReadFixture{}))
 	groups := httptest.NewRecorder()
 	handler.ServeHTTP(groups, httptest.NewRequest(http.MethodGet, "/api/v1/gateway/groups", nil))
 	if groups.Code != http.StatusOK {
@@ -91,7 +91,7 @@ func TestGatewayGroupReadAPIForwardsMetadataOnlyGroupsAndRevisions(t *testing.T)
 }
 
 func TestGatewayGroupReadAPIRejectsUnsupportedMethodsAndInvalidIDs(t *testing.T) {
-	handler := NewHandlerWithGatewayGroups(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, gatewayGroupsReadFixture{})
+	handler := NewHandlerWithGatewayGroups(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, application.NewAuthService(previewTestAuthorizer{}), nil, nil, application.NewGatewayGroupCatalogService(gatewayGroupsReadFixture{}))
 	for _, request := range []struct{ method, path string }{
 		{http.MethodPost, "/api/v1/gateway/groups"},
 		{http.MethodGet, "/api/v1/gateway/groups/Bad-ID/releases"},
@@ -101,6 +101,15 @@ func TestGatewayGroupReadAPIRejectsUnsupportedMethodsAndInvalidIDs(t *testing.T)
 		if response.Code != http.StatusMethodNotAllowed && response.Code != http.StatusBadRequest {
 			t.Errorf("%s %s returned %d: %s", request.method, request.path, response.Code, response.Body.String())
 		}
+	}
+}
+
+func TestGatewayGroupReadAPIRequiresGatewayGroupsReadPermission(t *testing.T) {
+	handler := NewHandlerWithGatewayGroups(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, application.NewAuthService(deniedPermissionAuthorizer{}), nil, nil, application.NewGatewayGroupCatalogService(gatewayGroupsReadFixture{}))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/gateway/groups", nil))
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("unauthorized group read returned %d: %s", response.Code, response.Body.String())
 	}
 }
 

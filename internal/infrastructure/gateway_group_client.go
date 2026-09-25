@@ -12,13 +12,15 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/Liapoldus/Constructor/internal/domain"
 )
 
 const gatewayGroupResponseLimit = 4 << 20
 
-// HTTPGatewayGroupClient is a typed adapter for the documented Group Releases
-// and durable operations endpoints. It is intentionally separate from the
-// legacy site deployment client until Constructor's group mapping is defined.
+// HTTPGatewayGroupClient is a typed adapter for documented Group Releases
+// endpoints. Constructor currently wires only metadata reads; mutations remain
+// disconnected until its Site/Environment-to-group mapping is defined.
 type HTTPGatewayGroupClient struct {
 	baseURL string
 	bearer  string
@@ -33,19 +35,8 @@ func NewHTTPGatewayGroupClient(baseURL, bearer string) *HTTPGatewayGroupClient {
 	}
 }
 
-type GatewayGroup struct {
-	ID               string  `json:"id"`
-	Kind             string  `json:"kind"`
-	Active           bool    `json:"active"`
-	CurrentRevision  *string `json:"currentRevision"`
-	PreviousRevision *string `json:"previousRevision"`
-	State            string  `json:"state"`
-}
-
-type GatewayGroupList struct {
-	Items     []GatewayGroup `json:"items"`
-	RequestID string         `json:"requestId"`
-}
+type GatewayGroup = domain.GatewayGroup
+type GatewayGroupList = domain.GatewayGroupList
 
 type GatewayFrontendRevision struct {
 	ID     string `json:"id"`
@@ -64,11 +55,7 @@ type GatewayGroupRevision struct {
 	Actor           string                    `json:"actor,omitempty"`
 }
 
-type GatewayGroupRevisionList struct {
-	Items      []GatewayGroupRevision `json:"items"`
-	NextCursor *string                `json:"nextCursor"`
-	RequestID  string                 `json:"requestId"`
-}
+type GatewayGroupRevisionList = domain.GatewayGroupRevisionList
 
 type GatewayOperationReference struct {
 	OperationID string `json:"operationId"`
@@ -115,7 +102,7 @@ type GroupReleaseInput struct {
 }
 
 func (c *HTTPGatewayGroupClient) ListGroups(ctx context.Context) (GatewayGroupList, error) {
-	var result GatewayGroupList
+	var result domain.GatewayGroupList
 	err := c.doJSON(ctx, http.MethodGet, "/api/groups", nil, nil, http.StatusOK, &result)
 	return result, err
 }
@@ -160,7 +147,7 @@ func (c *HTTPGatewayGroupClient) ListReleases(ctx context.Context, groupID, curs
 	if encoded := query.Encode(); encoded != "" {
 		endpoint += "?" + encoded
 	}
-	var result GatewayGroupRevisionList
+	var result domain.GatewayGroupRevisionList
 	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, nil, http.StatusOK, &result)
 	return result, err
 }

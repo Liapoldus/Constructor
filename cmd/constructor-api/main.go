@@ -64,9 +64,11 @@ func main() {
 	merge := application.NewMergeService(repository, infrastructure.NewGitMergeEngine())
 	var gateway domain.GatewayClient = infrastructure.UnavailableGatewayClient{}
 	var pluginAdminGateway domain.PluginAdminGateway
+	var gatewayGroupReader domain.GatewayGroupReader
 	if gatewayURL := os.Getenv("GATEWAY_URL"); gatewayURL != "" {
 		gateway = infrastructure.NewHTTPGatewayClient(gatewayURL, os.Getenv("GATEWAY_TOKEN"))
 		pluginAdminGateway = infrastructure.NewHTTPPluginAdminGateway(gatewayURL, os.Getenv("GATEWAY_TOKEN"))
+		gatewayGroupReader = infrastructure.NewHTTPGatewayGroupClient(gatewayURL, os.Getenv("GATEWAY_TOKEN"))
 	}
 	deploy := application.NewDeploymentService(store, gateway, store)
 	recoveryContext, stopRecovery := context.WithCancel(context.Background())
@@ -98,7 +100,7 @@ func main() {
 	}()
 	auth := application.NewAuthService(store)
 	rbac := application.NewRBACService(store)
-	handler := presentation.NewHandlerWithPluginAdmin(projects, preview, registry, workspaceService, routes, delivery, git, repositories, merge, deploy, auth, rbac, application.NewPluginAdminService(pluginAdminGateway), projectFiles)
+	handler := presentation.NewHandlerWithGatewayGroups(projects, preview, registry, workspaceService, routes, delivery, git, repositories, merge, deploy, auth, rbac, application.NewPluginAdminService(pluginAdminGateway), application.NewGatewayGroupCatalogService(gatewayGroupReader), projectFiles)
 	server := &http.Server{Addr: address, Handler: presentation.LoopbackHostBoundary(handler)}
 	log.Printf("Constructor API listening on %s", address)
 	serveErrors := make(chan error, 1)

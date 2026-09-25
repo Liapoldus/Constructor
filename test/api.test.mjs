@@ -1,5 +1,5 @@
 import test from 'node:test'; import assert from 'node:assert/strict'
-import {apiErrorMessage,checkoutGitBranch,commitProject,createGitBranch,createProjectPage,createProjectSite,deploySnapshot,loadGitBranches,loadGitDiff,loadGitHistory,loadGitStatus,rollbackDeployment,saveProjectContent,saveProjectTheme,saveSiteDocument,toRuntimeContent,uploadProjectAsset,validateProject,generateLocale,loadProject,listProjectAssets,listProjectThemes,listProjects} from '../src/api.ts'
+import {apiErrorMessage,checkoutGitBranch,commitProject,createGitBranch,createProjectPage,createProjectSite,deploySnapshot,loadGitBranches,loadGitDiff,loadGitHistory,loadGitStatus,rollbackDeployment,saveProjectContent,saveProjectTheme,saveSiteDocument,toRuntimeContent,uploadProjectAsset,validateProject,generateLocale,loadProject,listProjectAssets,listProjectThemes,listProjects,listGatewayGroups,listGatewayGroupReleases} from '../src/api.ts'
 import {installConstructorBridge} from '../src/bridge.ts'
 test('API contract is versioned',()=>assert.equal('/api/v1/project'.startsWith('/api/v1/'),true))
 test('project list rejects duplicate stable IDs instead of rendering ambiguous options',async()=>{
@@ -16,6 +16,24 @@ test('all UI API calls can use the injected desktop bridge',async()=>{
     assert.deepEqual(await validateProject(),{valid:true,diagnostics:[]})
     assert.deepEqual(requests,[{input:'/api/v1/project/validate',method:'POST'}])
   } finally {restore()}
+})
+
+test('Gateway group and revision views use Constructor read proxies, not legacy site endpoints',async()=>{
+  const requests=[]
+  const restore=installConstructorBridge({request:async(url)=>{
+    requests.push(String(url))
+    if(String(url)==='/api/v1/gateway/groups')return new Response(JSON.stringify({items:[{id:'frontend',kind:'application',active:true,currentRevision:'a'.repeat(64),previousRevision:null,state:'ready'}],requestId:'groups-request'}))
+    if(String(url)==='/api/v1/gateway/groups/frontend/releases?limit=25')return new Response(JSON.stringify({items:[{id:'a'.repeat(64),groupId:'frontend',caddyfileDigest:'b'.repeat(64),artifactDigest:null,createdAt:'2026-09-25T10:00:00Z',actor:'operator'}],nextCursor:null,requestId:'releases-request'}))
+    throw new Error(`unexpected request: ${String(url)}`)
+  }})
+  try{
+    const groups=await listGatewayGroups()
+    const revisions=await listGatewayGroupReleases('frontend',{limit:25})
+    assert.equal(groups.items[0].id,'frontend')
+    assert.equal(revisions.items[0].id,'a'.repeat(64))
+    assert.deepEqual(requests,['/api/v1/gateway/groups','/api/v1/gateway/groups/frontend/releases?limit=25'])
+    assert.equal(requests.some(path=>path.includes('/api/sites')),false)
+  }finally{restore()}
 })
 test('page creation sends the selected Site and optimistic revisions',async()=>{
   const originalFetch=globalThis.fetch;let body

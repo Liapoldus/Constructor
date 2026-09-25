@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/Liapoldus/Constructor/internal/application"
 	"github.com/Liapoldus/Constructor/internal/domain"
@@ -44,6 +47,60 @@ func TestProjectSitesEndpointReturnsValidatedActiveProjectSites(t *testing.T) {
 	}
 	if len(body.Sites) != 1 || body.Sites[0].ID != "local-site" || len(body.Sites[0].Pages) != 1 || body.Sites[0].Pages[0].ID != "home" || body.Sites[0].Pages[0].Name != "Главная" {
 		t.Fatalf("unexpected Site list: %#v", body.Sites)
+	}
+}
+
+type gatewayGroupsReadFixture struct{}
+
+func (gatewayGroupsReadFixture) ListGroups(context.Context) (domain.GatewayGroupList, error) {
+	current := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	return domain.GatewayGroupList{RequestID: "gateway-groups-request", Items: []domain.GatewayGroup{{ID: "frontend", Kind: "application", Active: true, CurrentRevision: &current, State: "ready"}}}, nil
+}
+
+func (gatewayGroupsReadFixture) ListReleases(_ context.Context, groupID, cursor string, limit int) (domain.GatewayGroupRevisionList, error) {
+	if groupID != "frontend" || cursor != "next" || limit != 25 {
+		return domain.GatewayGroupRevisionList{}, errors.New("unexpected release query")
+	}
+	return domain.GatewayGroupRevisionList{RequestID: "gateway-releases-request", Items: []domain.GatewayGroupRevisionSummary{{ID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", GroupID: groupID, CaddyfileDigest: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", CreatedAt: time.Date(2026, 9, 25, 10, 0, 0, 0, time.UTC)}}}, nil
+}
+
+func TestGatewayGroupReadAPIForwardsMetadataOnlyGroupsAndRevisions(t *testing.T) {
+	handler := NewHandlerWithGatewayGroups(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, gatewayGroupsReadFixture{})
+	groups := httptest.NewRecorder()
+	handler.ServeHTTP(groups, httptest.NewRequest(http.MethodGet, "/api/v1/gateway/groups", nil))
+	if groups.Code != http.StatusOK {
+		t.Fatalf("groups returned %d: %s", groups.Code, groups.Body.String())
+	}
+	var groupList domain.GatewayGroupList
+	if err := json.Unmarshal(groups.Body.Bytes(), &groupList); err != nil || groupList.RequestID != "gateway-groups-request" || len(groupList.Items) != 1 || groupList.Items[0].CurrentRevision == nil {
+		t.Fatalf("invalid groups response %#v, err=%v", groupList, err)
+	}
+
+	releases := httptest.NewRecorder()
+	handler.ServeHTTP(releases, httptest.NewRequest(http.MethodGet, "/api/v1/gateway/groups/frontend/releases?cursor=next&limit=25", nil))
+	if releases.Code != http.StatusOK {
+		t.Fatalf("releases returned %d: %s", releases.Code, releases.Body.String())
+	}
+	var releaseList domain.GatewayGroupRevisionList
+	if err := json.Unmarshal(releases.Body.Bytes(), &releaseList); err != nil || releaseList.RequestID != "gateway-releases-request" || len(releaseList.Items) != 1 || releaseList.NextCursor != nil {
+		t.Fatalf("invalid releases response %#v, err=%v", releaseList, err)
+	}
+	if strings.Contains(releases.Body.String(), "caddyfilePath") || strings.Contains(releases.Body.String(), "artifactPath") || strings.Contains(releases.Body.String(), "caddyfile\"") {
+		t.Fatalf("revision listing exposed non-metadata: %s", releases.Body.String())
+	}
+}
+
+func TestGatewayGroupReadAPIRejectsUnsupportedMethodsAndInvalidIDs(t *testing.T) {
+	handler := NewHandlerWithGatewayGroups(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, gatewayGroupsReadFixture{})
+	for _, request := range []struct{ method, path string }{
+		{http.MethodPost, "/api/v1/gateway/groups"},
+		{http.MethodGet, "/api/v1/gateway/groups/Bad-ID/releases"},
+	} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(request.method, request.path, nil))
+		if response.Code != http.StatusMethodNotAllowed && response.Code != http.StatusBadRequest {
+			t.Errorf("%s %s returned %d: %s", request.method, request.path, response.Code, response.Body.String())
+		}
 	}
 }
 

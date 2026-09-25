@@ -47,6 +47,31 @@ API — в [Group Releases](https://liapoldus.github.io/gateway/api/groups) и
 
 ## Секреты и подключение
 
+- [ ] Перед реализацией web authentication выпустить versioned Constructor
+  auth/security policy: сейчас governance намеренно оставляет неподтверждёнными
+  access/refresh TTL, password hashing parameters, account/MFA/recovery rate
+  limits, CSRF token/binding/rotation rules, WebAuthn recovery semantics и
+  authentication audit retention. Не выбирать значения в реализации до
+  утверждения этого policy.
+- [ ] Заменить текущую локальную auth-заглушку полноценным auth-mode adapter и
+  session lifecycle. Проверенный baseline: `constructor-api` сейчас запускает
+  SQLite authorizer, который читает только system user `local-admin` и выдаёт
+  ему `*`; `GET /api/v1/auth/session` возвращает этот principal, но login,
+  OIDC callback, password verification, WebAuthn, session cookie, refresh,
+  logout и revocation endpoints отсутствуют. Это покрывает только описанный
+  local-first desktop `none`, но не web режимы `oidc`/`local-jwt` и не является
+  подтверждением web-auth реализации.
+- [ ] Сохранить существующую local-first сетевую границу при добавлении auth:
+  listen address принимает только loopback IP; HTTP host допускает только
+  loopback/`localhost`, browser Origin — loopback/`localhost`, а native client
+  без Origin разрешён. Не расширять bind на LAN и не трактовать desktop `none`
+  как удалённую аутентификацию; отдельно доказать эти свойства интеграционными
+  тестами после изменения middleware.
+- [ ] Проверять Constructor role/environment permissions из доверенной
+  authenticated session до каждого действия над Gateway binding; текущий
+  Gateway group reader проверяет `gateway.groups.read`, но этот adapter пока
+  получает глобальный локальный principal, а не end-user session. Не принимать
+  browser-supplied actor/role/environment как источник авторизации или audit.
 - [ ] Поддержать web auth modes OIDC, local accounts/passwords + short-lived
   JWT и desktop single-user `none`; связывать OIDC user по `(iss, sub)` и
   запрещать не-provisioned subjects.

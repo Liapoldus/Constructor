@@ -35,7 +35,7 @@ export type PreviewDraftMessage = {protocol:1;source:'liapoldus.constructor';typ
 export type GitBranch = {name:string;commit:string;current:boolean}
 export type GitCommitRecord = {hash:string;message:string;author:string;date:string}
 export type GatewayPluginInstance = {id:string;state:'starting'|'ready'|'unhealthy'|'stopped';capabilities:string[];limits:Record<string,unknown>;health:boolean}
-export type GatewayGroup = {id:string;kind:'system'|'application';active:boolean;currentRevision:string|null;previousRevision:string|null;state:'empty'|'ready'}
+export type GatewayGroup = {id:string;kind:'system'|'application';active:boolean;currentRevision:string|null;previousRevision:string|null;state:'empty'|'ready'|'applying'|'drift-blocked'|'failed'}
 export type GatewayGroupRevisionSummary = {id:string;groupId:string;caddyfileDigest:string;artifactDigest:string|null;createdAt:string;actor?:string}
 export type GatewayGroupRevisionPage = {items:GatewayGroupRevisionSummary[];nextCursor:string|null;requestId:string}
 export class PluginSurfaceChangedError extends Error {
@@ -110,7 +110,7 @@ export async function listGatewayGroups():Promise<{items:GatewayGroup[];requestI
   const items=body.items.map((item):GatewayGroup=>{
     if(!item||typeof item!=='object')throw new Error('Constructor returned an invalid Gateway group')
     const value=item as Record<string,unknown>
-    if(typeof value.id!=='string'||!gatewayIDPattern.test(value.id)||seen.has(value.id)||!['system','application'].includes(String(value.kind))||typeof value.active!=='boolean'||!['empty','ready'].includes(String(value.state)))throw new Error('Constructor returned an invalid Gateway group')
+    if(typeof value.id!=='string'||!gatewayIDPattern.test(value.id)||seen.has(value.id)||!['system','application'].includes(String(value.kind))||typeof value.active!=='boolean'||!['empty','ready','applying','drift-blocked','failed'].includes(String(value.state)))throw new Error('Constructor returned an invalid Gateway group')
     if(!(value.currentRevision===null||typeof value.currentRevision==='string')||!(value.previousRevision===null||typeof value.previousRevision==='string'))throw new Error('Constructor returned an invalid Gateway group revision pointer')
     seen.add(value.id)
     return {id:value.id,kind:value.kind as GatewayGroup['kind'],active:value.active,currentRevision:value.currentRevision as string|null,previousRevision:value.previousRevision as string|null,state:value.state as GatewayGroup['state']}
@@ -132,7 +132,7 @@ export async function listGatewayGroupReleases(groupID:string,options:{cursor?:s
   const items=body.items.map((item):GatewayGroupRevisionSummary=>{
     if(!item||typeof item!=='object')throw new Error('Constructor returned an invalid Gateway revision summary')
     const value=item as Record<string,unknown>
-    if(typeof value.id!=='string'||!/^([a-fA-F0-9]{64})$/.test(value.id)||seen.has(value.id)||value.groupId!==groupID||typeof value.caddyfileDigest!=='string'||!/^([a-fA-F0-9]{64})$/.test(value.caddyfileDigest)||!(value.artifactDigest===null||typeof value.artifactDigest==='string'&&/^([a-fA-F0-9]{64})$/.test(value.artifactDigest))||typeof value.createdAt!=='string'||!Number.isFinite(Date.parse(value.createdAt))||('actor'in value&&typeof value.actor!=='string'))throw new Error('Constructor returned an invalid Gateway revision summary')
+    if(typeof value.id!=='string'||!/^[0-9a-f]{64}$/.test(value.id)||seen.has(value.id)||value.groupId!==groupID||typeof value.caddyfileDigest!=='string'||!/^[0-9a-f]{64}$/.test(value.caddyfileDigest)||!(value.artifactDigest===null||typeof value.artifactDigest==='string'&&/^[0-9a-f]{64}$/.test(value.artifactDigest))||typeof value.createdAt!=='string'||!Number.isFinite(Date.parse(value.createdAt))||('actor'in value&&typeof value.actor!=='string'))throw new Error('Constructor returned an invalid Gateway revision summary')
     if('caddyfile'in value||'caddyfilePath'in value||'artifactPath'in value||'frontends'in value)throw new Error('Constructor returned revision content in a metadata-only response')
     seen.add(value.id)
     return {id:value.id,groupId:value.groupId as string,caddyfileDigest:value.caddyfileDigest,artifactDigest:value.artifactDigest as string|null,createdAt:value.createdAt,actor:typeof value.actor==='string'?value.actor:undefined}

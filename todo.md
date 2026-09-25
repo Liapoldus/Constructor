@@ -73,7 +73,25 @@ API — в [Group Releases](https://liapoldus.github.io/gateway/api/groups) и
 - [ ] Проверять embedded/external Caddy variant и readiness в Gateway workspace;
   external Caddy — supervised child, а не независимый remote service.
 
-## Блокер интеграции с Group Releases API
+## Несовместимая старая публикация и блокер Group Releases
+
+- [x] Установлено: текущий `HTTPGatewayClient` всё ещё вызывает старый Gateway
+  API — `GET /api/sites`, `POST /api/sites/{slug}/publish` и
+  `POST /api/sites/{slug}/rollback` (`internal/infrastructure/gateway_client.go`).
+  Core удалил старые publish/rollback endpoints, поэтому эта интеграция больше
+  не совместима с целевым Gateway и не должна считаться рабочим способом
+  публикации. Код пока оставлен: deployment UI и его API остаются пользовательской
+  поверхностью Constructor, а удалённые Core endpoints сами по себе не доказывают,
+  что эту поверхность можно удалить.
+- [x] Установлено: типизированный `HTTPGatewayGroupClient` и его тесты уже есть
+  (`internal/infrastructure/gateway_group_client.go`,
+  `internal/infrastructure/gateway_group_client_test.go`), но клиент не подключён
+  в `cmd/constructor-api` и не используется интерфейсом; это ещё не end-to-end
+  интеграция.
+- [ ] Не вызывать старые `/api/sites` publish/rollback endpoints в новых
+  сценариях. После появления Group Releases API в Core подключить групповой
+  клиент к Constructor backend и UI; до этого явно показывать публикацию как
+  недоступную/несовместимую, а не сообщать об успешном deployment.
 
 - [ ] Согласовать и реализовать модель связи Constructor delivery target с
   Gateway group: текущие `SiteID` и `EnvironmentID` не определяют однозначно
@@ -94,11 +112,11 @@ API — в [Group Releases](https://liapoldus.github.io/gateway/api/groups) и
   `current`/`previous`: документированный Gateway rollback меняет предыдущую
   revision всей группы, тогда как Constructor сейчас адресует deployment по
   `(SiteID, EnvironmentID)`.
-- [ ] До закрытия пунктов выше сохранить старый `/api/sites` client и flow:
-  он по-прежнему соответствует работающему Gateway runtime в текущем workspace.
-  На текущем состоянии миграция Constructor однозначно не реализуема без
-  product-level решения; не удалять работающий integration и не заявлять
-  соответствие Group Releases контракту.
+- [ ] Пока Core не предоставляет Group Releases endpoints, интеграция
+  Constructor→Gateway остаётся незавершённой. Старый HTTP client не является
+  совместимой заменой; не удалять его UI/API без отдельного решения по судьбе
+  deployment-функции и не заявлять соответствие Group Releases контракту только
+  на основании unit-тестов изолированного group client.
 
 ## Остальные продуктовые работы
 

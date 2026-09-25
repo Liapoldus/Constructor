@@ -35,9 +35,18 @@ test('Gateway group and revision views use Constructor read proxies, not legacy 
     assert.equal(requests.some(path=>path.includes('/api/sites')),false)
   }finally{restore()}
 })
+test('Gateway group list accepts every canonical operational state',async()=>{
+  const states=['empty','ready','applying','drift-blocked','failed']
+  const restore=installConstructorBridge({request:async()=>new Response(JSON.stringify({items:states.map((state,index)=>({id:`group-${index}`,kind:'application',active:true,currentRevision:null,previousRevision:null,state})),requestId:'states-request'}))})
+  try{assert.deepEqual((await listGatewayGroups()).items.map(group=>group.state),states)}finally{restore()}
+})
 test('Gateway revision list rejects content or filesystem paths instead of rendering them',async()=>{
   const restore=installConstructorBridge({request:async()=>new Response(JSON.stringify({items:[{id:'a'.repeat(64),groupId:'frontend',caddyfile:'secret config',caddyfileDigest:'b'.repeat(64),artifactDigest:null,createdAt:'2026-09-25T10:00:00Z',caddyfilePath:'/private/revisions/file'}],nextCursor:null,requestId:'request'}))})
   try{await assert.rejects(listGatewayGroupReleases('frontend'),/metadata-only response/)}finally{restore()}
+})
+test('Gateway revision summary identifiers and digests must use lowercase canonical hex',async()=>{
+  const restore=installConstructorBridge({request:async()=>new Response(JSON.stringify({items:[{id:'A'.repeat(64),groupId:'frontend',caddyfileDigest:'B'.repeat(64),artifactDigest:null,createdAt:'2026-09-25T10:00:00Z'}],nextCursor:null,requestId:'request'}))})
+  try{await assert.rejects(listGatewayGroupReleases('frontend'),/invalid Gateway revision summary/)}finally{restore()}
 })
 test('page creation sends the selected Site and optimistic revisions',async()=>{
   const originalFetch=globalThis.fetch;let body
